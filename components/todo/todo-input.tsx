@@ -61,7 +61,10 @@ export function TodoInput({ onAddTodo }: TodoInputProps) {
     if (inputValue.trim()) {
       let imageUrl: string | undefined;
       if (selectedImage) {
-        imageUrl = await uploadImageToSupabase(selectedImage);
+        const uploadedUrl = await uploadImageToSupabase(selectedImage);
+        if (uploadedUrl) {
+          imageUrl = uploadedUrl;
+        }
       }
       onAddTodo(inputValue.trim(), imageUrl);
       setInputValue('');
