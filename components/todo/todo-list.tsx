@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { addTodo as addTodoAPI } from '@/lib/supabase/todos';
 import { TodoItem } from './todo-item';
 import { TodoInput } from './todo-input';
 import { Filter } from 'lucide-react';
@@ -39,15 +40,19 @@ export function TodoList() {
   
   const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all');
 
-  const addTodo = (text: string, imageUrl?: string) => {
-    const newTodo: Todo = {
-      id: Date.now().toString(),
-      text,
-      completed: false,
-      imageUrl,
-      createdAt: new Date(),
-    };
-    setTodos([newTodo, ...todos]);
+  const addTodo = async (text: string, imageUrl?: string) => {
+    try {
+      const newTodo = await addTodoAPI(text, imageUrl);
+      setTodos([newTodo, ...todos]);
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('Error adding todo:', error.message);
+        throw error;
+      } else {
+        console.error('Error adding todo:', error);
+        throw new Error('Failed to add todo');
+      }
+    }
   };
 
   const toggleTodo = (id: string) => {

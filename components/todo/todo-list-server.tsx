@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { addTodo as addTodoAPI } from '@/lib/supabase/todos';
 import { TodoItem } from './todo-item';
 import { TodoInput } from './todo-input';
 import { Filter } from 'lucide-react';
@@ -13,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import type { SupabaseChannel, PostgresChangesPayload } from '@supabase/supabase-js';
+import type { SupabaseChannel, PostgresChangesPayload } from '@supabase/ssr';
 import type { Todo } from '@/lib/supabase/todos';
 
 export function TodoListServer() {
@@ -119,30 +120,21 @@ export function TodoListServer() {
 
   const handleAddTodo = async (text: string, imageUrl?: string) => {
     try {
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      if (!userData.user) throw new Error('No user found');
-
-      const { data, error } = await supabase
-        .from('todos')
-        .insert({
-          text,
-          completed: false,
-          image_url: imageUrl,
-          user_id: userData.user.id,
-        })
-        .select('*')
-        .single();
-
-      if (error) throw error;
-      if (data) {
+      const newTodo = await addTodoAPI(text, imageUrl);
+      if (newTodo) {
         setTodos([
-          { ...data, created_at: new Date(data.created_at) },
+          newTodo,
           ...todos,
         ]);
       }
     } catch (error) {
-      console.error('Error adding todo:', error);
+      if (error instanceof Error) {
+        console.error('Error adding todo:', error.message);
+        throw error;
+      } else {
+        console.error('Error adding todo:', error);
+        throw new Error('Failed to add todo');
+      }
     }
   };
 
