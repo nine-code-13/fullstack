@@ -33,14 +33,20 @@ export function TodoInput({ onAddTodo }: TodoInputProps) {
   const uploadImageToSupabase = async (file: File): Promise<string | null> => {
     try {
       setIsUploading(true);
+      
+      // Get current user
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!userData.user) throw new Error('No user found');
+      
       const fileExt = file.name.split('.').pop();
       const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `todos/${fileName}`;
+      const filePath = `${userData.user.id}/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage.from('todo-images').upload(filePath, file);
+      const { error: uploadError } = await supabase.storage.from('todo-bucket').upload(filePath, file);
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage.from('todo-images').getPublicUrl(filePath);
+      const { data: { publicUrl } } = supabase.storage.from('todo-bucket').getPublicUrl(filePath);
       return publicUrl;
     } catch (error) {
       console.error('Error uploading image:', error);

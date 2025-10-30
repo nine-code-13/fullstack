@@ -5,8 +5,17 @@ import { ThemeSwitcher } from '@/components/theme-switcher';
 import { hasEnvVars } from '@/lib/utils';
 import Link from 'next/link';
 import { TodoListServer } from '@/components/todo/todo-list-server';
+import { createClient } from '@/lib/supabase/server';
+import { redirect } from 'next/navigation';
 
-export default function Home() {
+export default async function Home() {
+  const supabase = await createClient();
+  
+  // Check if user is authenticated
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data?.session) {
+    redirect('/auth/login');
+  }
   return (
     <main className="min-h-screen flex flex-col items-center">
       <div className="flex-1 w-full flex flex-col gap-20 items-center">

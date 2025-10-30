@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { TodoItem } from './todo-item';
 import { TodoInput } from './todo-input';
 import { Filter } from 'lucide-react';
+import { getTodos } from '@/lib/supabase/todos';
 import {
   Select,
   SelectContent,
@@ -19,6 +20,7 @@ interface Todo {
   completed: boolean;
   image_url?: string;
   created_at: Date;
+  user_id: string;
 }
 
 export function TodoListServer() {
@@ -30,24 +32,8 @@ export function TodoListServer() {
 
   useEffect(() => {
     const fetchTodos = async () => {
-      const { data, error } = await supabase
-        .from('todos')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching todos:', error);
-        return;
-      }
-
-      if (data) {
-        setTodos(
-          data.map((todo) => ({
-            ...todo,
-            created_at: new Date(todo.created_at),
-          })),
-        );
-      }
+      const todos = await getTodos();
+      setTodos(todos);
     };
 
     fetchTodos();
@@ -61,12 +47,17 @@ export function TodoListServer() {
 
   const handleAddTodo = async (text: string, imageUrl?: string) => {
     try {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!userData.user) throw new Error('No user found');
+
       const { data, error } = await supabase
         .from('todos')
         .insert({
           text,
           completed: false,
           image_url: imageUrl,
+          user_id: userData.user.id,
         })
         .select('*')
         .single();
@@ -85,10 +76,15 @@ export function TodoListServer() {
 
   const handleToggleTodo = async (id: string, completed: boolean) => {
     try {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!userData.user) throw new Error('No user found');
+
       const { error } = await supabase
         .from('todos')
         .update({ completed })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('user_id', userData.user.id);
       if (error) throw error;
       setTodos(
         todos.map((todo) => (todo.id === id ? { ...todo, completed } : todo)),
@@ -100,7 +96,35 @@ export function TodoListServer() {
 
   const handleDeleteTodo = async (id: string) => {
     try {
-      const { error } = await supabase.from('todos').delete().eq('id', id);
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!userData.user) throw new Error('No user found');
+      
+      // Get the todo to check if it has an image
+      const { data: todo, error: getTodoError } = await supabase
+        .from('todos')
+        .select('image_url')
+        .eq('id', id)
+        .eq('user_id', userData.user.id)
+        .single();
+      
+      if (getTodoError) throw getTodoError;
+      
+      // Delete the image if it exists
+      if (todo.image_url) {
+        // Extract the file path from the public URL
+        const filePath = todo.image_url.split('/').slice(-2).join('/');
+        const { error: deleteImageError } = await supabase.storage.from('todo-bucket').remove([filePath]);
+        if (deleteImageError) console.error('Error deleting image:', deleteImageError);
+      }
+      
+      // Delete the todo record
+      const { error } = await supabase
+        .from('todos')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', userData.user.id);
+      
       if (error) throw error;
       setTodos(todos.filter((todo) => todo.id !== id));
     } catch (error) {
