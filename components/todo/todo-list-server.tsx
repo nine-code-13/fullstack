@@ -1,8 +1,17 @@
-import { createClient } from '@/lib/supabase/server';
+'use client';
+
+import { useState, useEffect } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { TodoItem } from './todo-item';
 import { TodoInput } from './todo-input';
 import { Filter } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
 
 interface Todo {
   id: string;
@@ -12,43 +21,80 @@ interface Todo {
   created_at: Date;
 }
 
-interface TodoListServerProps {
-  todos: Todo[];
-  filter?: 'all' | 'active' | 'completed';
-}
+export function TodoListServer() {
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [currentFilter, setCurrentFilter] = useState<
+    'all' | 'active' | 'completed'
+  >('all');
+  const supabase = createClient();
 
-export async function TodoListServer({ todos, filter = 'all' }: TodoListServerProps) {
-  const supabase = await createClient();
+  useEffect(() => {
+    const fetchTodos = async () => {
+      const { data, error } = await supabase
+        .from('todos')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching todos:', error);
+        return;
+      }
+
+      if (data) {
+        setTodos(
+          data.map((todo) => ({
+            ...todo,
+            created_at: new Date(todo.created_at),
+          })),
+        );
+      }
+    };
+
+    fetchTodos();
+  }, []);
+
   const filteredTodos = todos.filter((todo) => {
-    if (filter === 'active') return !todo.completed;
-    if (filter === 'completed') return todo.completed;
+    if (currentFilter === 'active') return !todo.completed;
+    if (currentFilter === 'completed') return todo.completed;
     return true;
   });
 
   const handleAddTodo = async (text: string, imageUrl?: string) => {
     try {
-      const { data, error } = await supabase.from('todos').insert({
-        text,
-        completed: false,
-        image_url: imageUrl,
-      }).select('*').single();
+      const { data, error } = await supabase
+        .from('todos')
+        .insert({
+          text,
+          completed: false,
+          image_url: imageUrl,
+        })
+        .select('*')
+        .single();
 
       if (error) throw error;
-      return data;
+      if (data) {
+        setTodos([
+          { ...data, created_at: new Date(data.created_at) },
+          ...todos,
+        ]);
+      }
     } catch (error) {
       console.error('Error adding todo:', error);
-      return null;
     }
   };
 
   const handleToggleTodo = async (id: string, completed: boolean) => {
     try {
-      const { error } = await supabase.from('todos').update({ completed }).eq('id', id);
+      const { error } = await supabase
+        .from('todos')
+        .update({ completed })
+        .eq('id', id);
       if (error) throw error;
-      return true;
+      setTodos(
+        todos.map((todo) => (todo.id === id ? { ...todo, completed } : todo)),
+      );
     } catch (error) {
       console.error('Error toggling todo:', error);
-      return false;
     }
   };
 
@@ -56,10 +102,9 @@ export async function TodoListServer({ todos, filter = 'all' }: TodoListServerPr
     try {
       const { error } = await supabase.from('todos').delete().eq('id', id);
       if (error) throw error;
-      return true;
+      setTodos(todos.filter((todo) => todo.id !== id));
     } catch (error) {
       console.error('Error deleting todo:', error);
-      return false;
     }
   };
 
@@ -69,7 +114,12 @@ export async function TodoListServer({ todos, filter = 'all' }: TodoListServerPr
         <h1 className="text-3xl font-bold">Todo List</h1>
         <div className="flex items-center gap-2">
           <Filter className="h-5 w-5 text-muted-foreground" />
-          <Select defaultValue={filter}>
+          <Select
+            defaultValue={currentFilter}
+            onValueChange={(value) =>
+              setCurrentFilter(value as 'all' | 'active' | 'completed')
+            }
+          >
             <SelectTrigger className="w-[130px]">
               <SelectValue placeholder="Filter" />
             </SelectTrigger>
@@ -81,9 +131,9 @@ export async function TodoListServer({ todos, filter = 'all' }: TodoListServerPr
           </Select>
         </div>
       </div>
-      
+
       <TodoInput onAddTodo={handleAddTodo} />
-      
+
       <div className="mt-6 space-y-3">
         {filteredTodos.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
@@ -105,7 +155,7 @@ export async function TodoListServer({ todos, filter = 'all' }: TodoListServerPr
           ))
         )}
       </div>
-      
+
       <div className="mt-6 pt-4 border-t">
         <p className="text-sm text-muted-foreground">
           {filteredTodos.length} of {todos.length} todos
@@ -113,19 +163,4 @@ export async function TodoListServer({ todos, filter = 'all' }: TodoListServerPr
       </div>
     </div>
   );
-}
-
-export async function getTodos() {
-  const supabase = await createClient();
-  const { data, error } = await supabase.from('todos').select('*').order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('Error fetching todos:', error);
-    return [];
-  }
-
-  return (data || []).map((todo) => ({
-    ...todo,
-    created_at: new Date(todo.created_at),
-  }));
 }
