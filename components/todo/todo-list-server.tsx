@@ -13,15 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-
-interface Todo {
-  id: string;
-  text: string;
-  completed: boolean;
-  image_url?: string;
-  created_at: Date;
-  user_id: string;
-}
+import type { SupabaseChannel, PostgresChangesPayload } from '@supabase/supabase-js';
+import type { Todo } from '@/lib/supabase/todos';
 
 export function TodoListServer() {
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -31,12 +24,91 @@ export function TodoListServer() {
   const supabase = createClient();
 
   useEffect(() => {
-    const fetchTodos = async () => {
-      const todos = await getTodos();
-      setTodos(todos);
+    let channel: SupabaseChannel | null = null;
+    
+    const init = async () => {
+      try {
+        // 获取当前用户
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError) {
+          console.error('获取用户失败:', userError);
+          return;
+        }
+        if (!userData.user) {
+          console.error('没有找到用户');
+          return;
+        }
+        
+        // 获取 todos 数据
+        const todos = await getTodos();
+        setTodos(todos);
+        
+        // 设置实时订阅
+        const channelName = `todos:${userData.user.id}`;
+        channel = supabase
+          .channel(channelName)
+          .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'todos',
+            filter: `user_id=eq.${userData.user.id}`
+          }, (payload: PostgresChangesPayload<Todo>) => {
+            console.log(`实时更新 ${payload.eventType}:`, payload.new || payload.old);
+            
+            switch (payload.eventType) {
+              case 'INSERT':
+                if (payload.new) {
+                  // 添加新 todo 到列表开头
+                  setTodos(prev => [
+                    { ...payload.new, created_at: new Date(payload.new.created_at) },
+                    ...prev
+                  ]);
+                }
+                break;
+              case 'UPDATE':
+                if (payload.new) {
+                  // 更新 todo
+                  setTodos(prev => prev.map(todo => 
+                    todo.id === payload.new.id ? 
+                      { ...payload.new, created_at: new Date(payload.new.created_at) } : todo
+                  ));
+                }
+                break;
+              case 'DELETE':
+                if (payload.old) {
+                  // 删除 todo
+                  setTodos(prev => prev.filter(todo => todo.id !== payload.old.id));
+                }
+                break;
+              default:
+                console.warn('未知的事件类型:', payload.eventType);
+                break;
+            }
+          })
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('实时订阅已建立');
+            } else if (status === 'CHANNEL_ERROR') {
+              console.error('实时订阅出现错误');
+            } else if (status === 'TIMED_OUT') {
+              console.error('实时订阅超时');
+            } else if (status === 'CLOSED') {
+              console.log('实时订阅已关闭');
+            }
+          });
+      } catch (error) {
+        console.error('初始化失败:', error);
+      }
     };
 
-    fetchTodos();
+    init();
+
+    // 组件卸载时取消订阅
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
   }, []);
 
   const filteredTodos = todos.filter((todo) => {
